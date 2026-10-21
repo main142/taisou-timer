@@ -1,0 +1,268 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>体操タイマー</title>
+<meta name="theme-color" content="#1F5FD6">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="体操タイマー">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<style>
+/* 1画面のアプリ：上=区間名と回数／中央=大きな残り秒数のリング／下=操作。走行中は画面全体を区間の色で塗る（離れても分かる） */
+:root{
+  --bg:#F2F5FA; --fg:#141C2B; --muted:#4A5568; --surface:#FFFFFF; --line:#D3DBE8;
+  --work:#1F5FD6; --rest:#0E7C74; --prep:#A4600F; --done:#36415A;
+  --on:#FFFFFF;
+  /* 起動を速くするため外部フォントは読まず、スマホに入っている字体を使う */
+  --num:"Avenir Next Condensed","Roboto Condensed","sans-serif-condensed","Arial Narrow",system-ui,sans-serif;
+  --ja:"Hiragino Sans","Noto Sans JP","Yu Gothic",system-ui,sans-serif;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0E1420; --fg:#E6ECF6; --muted:#A2AEC2; --surface:#182133; --line:#2A3650;
+  --work:#1C52B8; --rest:#0B6A63; --prep:#8C520D; --done:#262F42; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0E1420; --fg:#E6ECF6; --muted:#A2AEC2; --surface:#182133; --line:#2A3650;
+  --work:#1C52B8; --rest:#0B6A63; --prep:#8C520D; --done:#262F42; color-scheme:dark}
+
+html,body{height:100%;margin:0}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--fg);font-family:var(--ja);
+  display:flex;flex-direction:column;
+  padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));
+  padding-top:calc(12px + env(safe-area-inset-top,0px));padding-bottom:calc(12px + env(safe-area-inset-bottom,0px));box-sizing:border-box;transition:background .35s ease;
+  -webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
+body[data-phase="work"]{background:var(--work);color:var(--on)}
+body[data-phase="rest"]{background:var(--rest);color:var(--on)}
+body[data-phase="prep"]{background:var(--prep);color:var(--on)}
+body[data-phase="done"]{background:var(--done);color:var(--on)}
+body[data-phase] .muted{color:rgba(255,255,255,.82)}
+.muted{color:var(--muted)}
+
+header{display:flex;justify-content:space-between;align-items:baseline;gap:12px}
+#phase{font-size:clamp(28px,8vw,44px);font-weight:700;letter-spacing:.06em}
+#round{font-family:var(--num);font-size:clamp(24px,7vw,36px);font-weight:700;font-variant-numeric:tabular-nums}
+#round small{font-size:.6em;font-weight:500}
+
+main{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:safe center;gap:18px;min-height:0;overflow-y:auto;padding-block:8px}
+.ring{position:relative;width:min(78vw,52vh,420px);aspect-ratio:1;max-width:100%;flex:none;container-type:inline-size}
+/* 設定を出している画面では、リングを小さくして全部が1画面に収まるようにする */
+body.setup main{gap:12px}
+body.setup .ring{width:min(52vw,28vh,260px)}
+.ring svg{width:100%;height:100%;transform:rotate(-90deg)}
+.ring circle{fill:none;stroke-width:9}
+.track{stroke:var(--line)}
+body[data-phase] .track{stroke:rgba(255,255,255,.25)}
+#arc{stroke:var(--work);stroke-linecap:round}
+body[data-phase] #arc{stroke:var(--on)}
+.center{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center}
+#big{font-family:var(--num);font-weight:700;font-size:min(46vw,30vh,250px);font-size:52cqw;line-height:.9;font-variant-numeric:tabular-nums}
+#big.pulse{animation:pulse .5s ease-out}
+@keyframes pulse{from{transform:scale(1.12)}to{transform:scale(1)}}
+#next{font-size:15px;margin-top:6px;text-align:center;padding-inline:12%}
+body.setup #next{font-size:13px}
+
+.dots{display:flex;gap:7px;flex-wrap:wrap;justify-content:center}
+.dot{width:12px;height:12px;border-radius:50%;border:2px solid var(--line);box-sizing:border-box}
+.dot.on{background:var(--work);border-color:var(--work)}
+body[data-phase] .dot{border-color:rgba(255,255,255,.45)}
+body[data-phase] .dot.on{background:var(--on);border-color:var(--on)}
+.total{font-size:15px}
+.total b{font-family:var(--num);font-size:22px;font-variant-numeric:tabular-nums;margin-left:4px}
+
+/* 設定（止まっているときだけ） */
+.settings{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;width:100%;max-width:440px}
+.set{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:10px 12px;display:flex;flex-direction:column;gap:6px}
+.set label{font-size:13px;color:var(--muted);font-weight:700;letter-spacing:.04em}
+.step{display:flex;align-items:center;justify-content:space-between;gap:6px}
+.step button{width:40px;height:40px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--fg);font-size:22px;font-weight:700;cursor:pointer}
+.step output{font-family:var(--num);font-size:30px;font-weight:700;font-variant-numeric:tabular-nums;min-width:2.2em;text-align:center}
+.step output small{font-size:.5em;font-weight:500;margin-left:2px;font-family:var(--ja)}
+
+footer{display:flex;flex-direction:column;gap:10px;padding-bottom:6px}
+.btns{display:flex;gap:10px}
+.btns button{flex:1;height:64px;border-radius:18px;border:0;font-family:var(--ja);font-size:22px;font-weight:700;letter-spacing:.08em;cursor:pointer}
+#go{background:var(--work);color:var(--on)}
+body[data-phase] #go{background:var(--on);color:#141C2B}
+#reset{flex:0 0 32%;background:var(--surface);color:var(--fg);border:1px solid var(--line)}
+body[data-phase] #reset{background:rgba(255,255,255,.18);color:var(--on);border-color:rgba(255,255,255,.35)}
+button:focus-visible{outline:3px solid var(--fg);outline-offset:2px}
+body[data-phase] button:focus-visible{outline-color:var(--on)}
+.note{font-size:12px;text-align:center;line-height:1.6}
+@media (prefers-reduced-motion:reduce){#big.pulse{animation:none}body{transition:none}}
+@media (max-height:640px){.settings{gap:6px}.set{padding:6px 10px}.step button{width:34px;height:34px}}
+</style>
+</head>
+<body>
+
+<header>
+  <div id="phase">体操タイマー</div>
+  <div id="round"></div>
+</header>
+
+<main>
+  <div class="ring">
+    <svg viewBox="0 0 200 200" aria-hidden="true">
+      <circle class="track" cx="100" cy="100" r="92"></circle>
+      <circle id="arc" cx="100" cy="100" r="92"></circle>
+    </svg>
+    <div class="center">
+      <div id="big" aria-live="off">30</div>
+      <div id="next" class="muted"></div>
+    </div>
+  </div>
+  <div class="dots" id="dots"></div>
+  <div class="total muted">全体の残り<b id="total">0:00</b></div>
+  <div class="settings" id="settings">
+    <div class="set"><label for="v-work">体操</label><div class="step"><button data-k="work" data-d="-5" aria-label="体操を5秒減らす">−</button><output id="v-work"></output><button data-k="work" data-d="5" aria-label="体操を5秒増やす">＋</button></div></div>
+    <div class="set"><label for="v-rest">休憩</label><div class="step"><button data-k="rest" data-d="-1" aria-label="休憩を1秒減らす">−</button><output id="v-rest"></output><button data-k="rest" data-d="1" aria-label="休憩を1秒増やす">＋</button></div></div>
+    <div class="set"><label for="v-rounds">回数</label><div class="step"><button data-k="rounds" data-d="-1" aria-label="回数を減らす">−</button><output id="v-rounds"></output><button data-k="rounds" data-d="1" aria-label="回数を増やす">＋</button></div></div>
+    <div class="set"><label for="v-prep">開始前</label><div class="step"><button data-k="prep" data-d="-1" aria-label="開始前を1秒減らす">−</button><output id="v-prep"></output><button data-k="prep" data-d="1" aria-label="開始前を1秒増やす">＋</button></div></div>
+  </div>
+</main>
+
+<footer>
+  <div class="btns">
+    <button id="reset" type="button">リセット</button>
+    <button id="go" type="button">スタート</button>
+  </div>
+  <div class="note muted" id="note">iPhoneはマナーモード（消音）だと音が鳴りません。音量を上げてからスタートしてください。</div>
+</footer>
+
+<script>
+(()=>{
+const $=id=>document.getElementById(id);
+const DEF={prep:3,work:30,rest:5,rounds:9};
+const LIM={prep:[0,10],work:[5,600],rest:[0,120],rounds:[1,30]};
+let cfg={...DEF};
+try{const s=JSON.parse(localStorage.getItem('taisou-timer')||'null');if(s)cfg={...DEF,...s};}catch(e){}
+const save=()=>{try{localStorage.setItem('taisou-timer',JSON.stringify(cfg));}catch(e){}};
+
+const NAME={prep:'準備',work:'体操',rest:'休憩',done:'終了'};
+const C=2*Math.PI*92; $('arc').style.strokeDasharray=C;
+
+let plan,state='idle',base=0,t0=0,lastSeg=-1,lastDisp=-1,iv=null,wl=null;
+
+function build(){
+  const segs=[];let t=0;
+  const add=(type,dur,round)=>{segs.push({type,dur,round,start:t,end:t+dur});t+=dur;};
+  if(cfg.prep>0)add('prep',cfg.prep,1);
+  for(let r=1;r<=cfg.rounds;r++){add('work',cfg.work,r);if(r<cfg.rounds&&cfg.rest>0)add('rest',cfg.rest,r);}
+  return {segs,total:t};
+}
+const fmt=s=>{s=Math.max(0,Math.ceil(s));return Math.floor(s/60)+':'+String(s%60).padStart(2,'0');};
+const elapsed=()=>state==='running'?base+(performance.now()-t0)/1000:base;
+
+/* ---- 音 ---- */
+let ac=null,voice=null;
+function pickVoice(){const v=speechSynthesis.getVoices();voice=v.find(x=>/^ja/i.test(x.lang))||null;}
+if('speechSynthesis' in window){pickVoice();speechSynthesis.onvoiceschanged=pickVoice;}
+function unlock(){
+  try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();if(ac.state==='suspended')ac.resume();
+    const b=ac.createBuffer(1,1,22050),s=ac.createBufferSource();s.buffer=b;s.connect(ac.destination);s.start(0);}catch(e){}
+  try{const u=new SpeechSynthesisUtterance(' ');u.volume=0;u.lang='ja-JP';speechSynthesis.speak(u);}catch(e){}
+}
+function tone(freq,len,vol=0.5){
+  if(!ac)return;const t=ac.currentTime,o=ac.createOscillator(),g=ac.createGain();
+  o.type='sine';o.frequency.value=freq;g.gain.setValueAtTime(0.0001,t);
+  g.gain.exponentialRampToValueAtTime(vol,t+0.01);g.gain.exponentialRampToValueAtTime(0.0001,t+len);
+  o.connect(g).connect(ac.destination);o.start(t);o.stop(t+len+0.02);
+}
+function say(text){
+  try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);u.lang='ja-JP';if(voice)u.voice=voice;u.rate=1.05;u.volume=1;speechSynthesis.speak(u);}catch(e){}
+}
+
+/* ---- 画面を消さない ---- */
+async function wake(){try{if('wakeLock' in navigator&&!wl){wl=await navigator.wakeLock.request('screen');wl.addEventListener('release',()=>{wl=null;});}}catch(e){wl=null;}}
+function sleep(){try{wl&&wl.release();}catch(e){}wl=null;}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){if(state==='running')wake();tick();}});
+
+/* ---- 進行 ---- */
+function enter(seg){
+  if(seg.type==='work'){tone(1320,0.45,0.6);say('スタート');}
+  else if(seg.type==='rest'){tone(660,0.35,0.5);say('休憩');}
+}
+function tick(){
+  if(!plan)return;
+  const e=elapsed();
+  if(e>=plan.total){finish();return;}
+  const i=plan.segs.findIndex(s=>e<s.end),seg=plan.segs[i],rem=seg.end-e,disp=Math.ceil(rem);
+  if(i!==lastSeg){lastSeg=i;lastDisp=-1;if(state==='running')enter(seg);}
+  if(disp!==lastDisp){
+    if(state==='running'&&disp>=1&&disp<=3){tone(880,0.13,0.55);pulse();}
+    lastDisp=disp;
+  }
+  draw(seg,rem,disp,e);
+}
+function pulse(){const b=$('big');b.classList.remove('pulse');void b.offsetWidth;b.classList.add('pulse');}
+function draw(seg,rem,disp,e){
+  document.body.dataset.phase=seg.type;
+  $('phase').textContent=NAME[seg.type];
+  $('round').innerHTML=seg.round+'<small> / '+cfg.rounds+' 回</small>';
+  $('big').textContent=disp;
+  $('arc').style.strokeDashoffset=C*(1-rem/seg.dur);
+  const nx=plan.segs[plan.segs.indexOf(seg)+1];
+  $('next').textContent=nx?('次は '+NAME[nx.type]+' '+nx.dur+'秒'):'これで最後';
+  $('total').textContent=fmt(plan.total-e);
+  dots(seg.type==='work'?seg.round-1:seg.type==='rest'?seg.round:0, seg.type==='work'?seg.round:0);
+}
+function dots(doneN,cur){
+  const d=$('dots');if(d.children.length!==cfg.rounds){d.innerHTML='';for(let k=0;k<cfg.rounds;k++){const s=document.createElement('span');s.className='dot';d.appendChild(s);}}
+  [...d.children].forEach((s,k)=>s.classList.toggle('on',k<doneN||k===cur-1));
+}
+function finish(){
+  clearInterval(iv);iv=null;state='done';sleep();
+  tone(1320,0.2,0.6);setTimeout(()=>tone(1760,0.5,0.6),220);say('終了です。お疲れさまでした');
+  document.body.dataset.phase='done';
+  $('phase').textContent='終了';$('round').innerHTML=cfg.rounds+'<small> / '+cfg.rounds+' 回</small>';
+  $('big').textContent='✓';$('arc').style.strokeDashoffset=0;$('next').textContent='お疲れさまでした';
+  $('total').textContent='0:00';dots(cfg.rounds,0);ui();
+}
+function idleView(){
+  delete document.body.dataset.phase;
+  plan=build();
+  $('phase').textContent='体操タイマー';
+  $('round').innerHTML='<small>全 '+cfg.rounds+' 回</small>';
+  $('big').textContent=cfg.work;$('arc').style.strokeDashoffset=0;
+  $('next').textContent='体操 '+cfg.work+'秒 ／ 休憩 '+cfg.rest+'秒';
+  $('total').textContent=fmt(plan.total);dots(0,0);
+}
+function ui(){
+  const run=state==='running';
+  $('go').textContent=run?'一時停止':state==='paused'?'再開':state==='done'?'もう一度':'スタート';
+  $('settings').hidden=!(state==='idle'||state==='done');
+  document.body.classList.toggle('setup',!$('settings').hidden);
+  $('reset').hidden=state==='idle';
+  $('note').hidden=state!=='idle';
+}
+function start(){
+  unlock();
+  if(state==='idle'||state==='done'){plan=build();base=0;lastSeg=-1;lastDisp=-1;}
+  t0=performance.now();state='running';wake();
+  clearInterval(iv);iv=setInterval(tick,50);tick();ui();
+}
+function pause(){base=elapsed();state='paused';clearInterval(iv);iv=null;sleep();
+  $('phase').textContent=NAME[plan.segs[lastSeg].type]+'（一時停止）';ui();}
+function reset(){clearInterval(iv);iv=null;state='idle';base=0;lastSeg=-1;sleep();try{speechSynthesis.cancel();}catch(e){}idleView();ui();}
+
+$('go').addEventListener('click',()=>{state==='running'?pause():start();});
+$('reset').addEventListener('click',reset);
+document.querySelectorAll('.step button').forEach(b=>b.addEventListener('click',()=>{
+  const k=b.dataset.k,[lo,hi]=LIM[k];cfg[k]=Math.min(hi,Math.max(lo,cfg[k]+Number(b.dataset.d)));
+  save();showCfg();if(state==='done')state='idle';idleView();ui();
+}));
+function showCfg(){
+  $('v-work').innerHTML=cfg.work+'<small>秒</small>';$('v-rest').innerHTML=cfg.rest+'<small>秒</small>';
+  $('v-rounds').innerHTML=cfg.rounds+'<small>回</small>';$('v-prep').innerHTML=cfg.prep+'<small>秒</small>';
+}
+showCfg();idleView();ui();
+})();
+/* オフラインで使えるように、スマホの中に保存する */
+if('serviceWorker' in navigator){window.addEventListener('load',()=>{navigator.serviceWorker.register('sw.js').catch(()=>{});});}
+</script>
+</body>
+</html>
