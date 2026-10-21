@@ -143,7 +143,7 @@ try{const s=JSON.parse(localStorage.getItem('taisou-timer')||'null');if(s)cfg={.
 const save=()=>{try{localStorage.setItem('taisou-timer',JSON.stringify(cfg));}catch(e){}};
 
 const NAME={prep:'準備',work:'体操',rest:'休憩',done:'終了'};
-const COUNT={3:'さん',2:'に',1:'いち'}; /* 体操・休憩の残り3秒から読み上げる */
+const COUNT={3:'さん',2:'に',1:'いち'}; /* 開始前・体操・休憩の残り3秒から読み上げる */
 const C=2*Math.PI*92; $('arc').style.strokeDasharray=C;
 
 let plan,state='idle',base=0,t0=0,lastSeg=-1,lastDisp=-1,iv=null,wl=null;
@@ -194,7 +194,7 @@ function tick(){
   const i=plan.segs.findIndex(s=>e<s.end),seg=plan.segs[i],rem=seg.end-e,disp=Math.ceil(rem);
   if(i!==lastSeg){lastSeg=i;lastDisp=-1;if(state==='running')enter(seg);}
   if(disp!==lastDisp){
-    if(state==='running'&&disp>=1&&disp<=3){tone(880,0.13,0.55);if(seg.type!=='prep')say(COUNT[disp]);pulse();}
+    if(state==='running'&&disp>=1&&disp<=3){tone(880,0.13,0.55);say(COUNT[disp]);pulse();}
     lastDisp=disp;
   }
   draw(seg,rem,disp,e);
