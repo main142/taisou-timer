@@ -178,10 +178,10 @@ function unlock(){
     const b=ac.createBuffer(1,1,22050),s=ac.createBufferSource();s.buffer=b;s.connect(ac.destination);s.start(0);}catch(e){}
   try{const u=new SpeechSynthesisUtterance(' ');u.volume=0;u.lang='ja-JP';speechSynthesis.speak(u);}catch(e){}
 }
-function tone(freq,len,vol=0.5){
+function tone(freq,len,vol=0.5,type='sine',delay=0){
   if(!ac)return;if(ac.state!=='running')try{ac.resume();}catch(e){} /* 読み上げなどで止められた音を戻す */
-  const t=ac.currentTime,o=ac.createOscillator(),g=ac.createGain();
-  o.type='sine';o.frequency.value=freq;g.gain.setValueAtTime(0.0001,t);
+  const t=ac.currentTime+delay,o=ac.createOscillator(),g=ac.createGain();
+  o.type=type;o.frequency.value=freq;g.gain.setValueAtTime(0.0001,t);
   g.gain.exponentialRampToValueAtTime(vol,t+0.01);g.gain.exponentialRampToValueAtTime(0.0001,t+len);
   o.connect(g).connect(ac.destination);o.start(t);o.stop(t+len+0.02);
 }
@@ -209,8 +209,11 @@ function tick(){
   if(i!==lastSeg){lastSeg=i;lastDisp=-1;if(state==='running')enter(seg);}
   if(disp!==lastDisp){
     if(state==='running'&&disp>=1&&disp<=3){tone(880,0.13,0.55);say(COUNT[disp]);pulse();}
-    /* 1秒ごとの「ピッ」。残り10秒からは高く大きい音に変える（区間の始まりは別の音なので鳴らさない） */
-    else if(state==='running'&&lastDisp!==-1){if(disp<=10)tone(1250,0.08,0.4);else tone(1000,0.05,0.25);}
+    /* 1秒ごとに刻む音。ふだんは低く小さい「コッ」、残り10秒からは高い「ピピッ」に変える（区間の始まりは別の音なので鳴らさない） */
+    else if(state==='running'&&lastDisp!==-1){
+      if(disp<=10){tone(1800,0.06,0.45,'triangle');tone(1800,0.06,0.45,'triangle',0.1);}
+      else tone(600,0.04,0.2);
+    }
     lastDisp=disp;
   }
   draw(seg,rem,disp,e);
