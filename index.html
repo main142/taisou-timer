@@ -163,12 +163,15 @@ let ac=null,voice=null;
 function pickVoice(){const v=speechSynthesis.getVoices();voice=v.find(x=>/^ja/i.test(x.lang))||null;}
 if('speechSynthesis' in window){pickVoice();speechSynthesis.onvoiceschanged=pickVoice;}
 function unlock(){
+  /* iPhoneでマナーモード（消音）でも鳴るよう「音楽を再生するアプリ」として扱ってもらう（Safari 16.4以降） */
+  try{if(navigator.audioSession)navigator.audioSession.type='playback';}catch(e){}
   try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();if(ac.state==='suspended')ac.resume();
     const b=ac.createBuffer(1,1,22050),s=ac.createBufferSource();s.buffer=b;s.connect(ac.destination);s.start(0);}catch(e){}
   try{const u=new SpeechSynthesisUtterance(' ');u.volume=0;u.lang='ja-JP';speechSynthesis.speak(u);}catch(e){}
 }
 function tone(freq,len,vol=0.5){
-  if(!ac)return;const t=ac.currentTime,o=ac.createOscillator(),g=ac.createGain();
+  if(!ac)return;if(ac.state!=='running')try{ac.resume();}catch(e){} /* 読み上げなどで止められた音を戻す */
+  const t=ac.currentTime,o=ac.createOscillator(),g=ac.createGain();
   o.type='sine';o.frequency.value=freq;g.gain.setValueAtTime(0.0001,t);
   g.gain.exponentialRampToValueAtTime(vol,t+0.01);g.gain.exponentialRampToValueAtTime(0.0001,t+len);
   o.connect(g).connect(ac.destination);o.start(t);o.stop(t+len+0.02);
