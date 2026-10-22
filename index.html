@@ -130,7 +130,7 @@ body[data-phase] button:focus-visible{outline-color:var(--on)}
     <button id="reset" type="button">リセット</button>
     <button id="go" type="button">スタート</button>
   </div>
-  <div class="note muted" id="note">音量を上げてからスタートしてください。<br>版 v10</div>
+  <div class="note muted" id="note">音量を上げてからスタートしてください。<br>版 v11 <span id="voice"></span></div>
 </footer>
 
 <script>
@@ -162,8 +162,10 @@ const elapsed=()=>state==='running'?base+(performance.now()-t0)/1000:base;
 let ac=null,voice=null;
 /* 日本語の女性の声を優先して選ぶ（スマホに入っている声しか使えない）。見つからなければ日本語の声なら何でも */
 const FEMALE=/o-?ren|kyoko|nanami|haruka|ayumi|sayaka|mizuki|google 日本語|女性|female/i,MALE=/otoya|hattori|ichiro|keita|男性|male/i;
-function pickVoice(){const v=speechSynthesis.getVoices().filter(x=>/^ja/i.test(x.lang));
-  voice=v.find(x=>FEMALE.test(x.name))||v.find(x=>!MALE.test(x.name))||v[0]||null;}
+/* O-ren を一番に、その中でも「拡張」「プレミアム」の高音質版を優先する */
+const score=x=>(/o-?ren/i.test(x.name)?4:FEMALE.test(x.name)?2:MALE.test(x.name)?0:1)*10+(/enhanced|premium|拡張|プレミアム/i.test(x.name)?1:0);
+function pickVoice(){const v=speechSynthesis.getVoices().filter(x=>/^ja/i.test(x.lang)).sort((a,b)=>score(b)-score(a));
+  voice=v[0]||null;const el=$('voice');if(el)el.textContent=voice?'声：'+voice.name:'';}
 if('speechSynthesis' in window){pickVoice();speechSynthesis.onvoiceschanged=pickVoice;}
 /* iPhoneはマナーモードだと効果音が消える。無音の音声をくり返し再生しておくと「音楽再生中」扱いになり、消音でも鳴る */
 let mute=null;

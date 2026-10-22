@@ -1,5 +1,5 @@
 // 体操タイマー：オフライン用の保存。直したら VERSION の数字と、index.html の「版」の表示を上げる
-const VERSION='taisou-timer-v10';
+const VERSION='taisou-timer-v11';
 const FILES=['./','./index.html','./manifest.webmanifest','./icon-180.png','./icon-192.png','./icon-512.png'];
 // ブラウザに残っている古いファイルではなく、必ずサーバーから取り直して保存する
 self.addEventListener('install',e=>{e.waitUntil(caches.open(VERSION).then(c=>c.addAll(FILES.map(f=>new Request(f,{cache:'reload'})))).then(()=>self.skipWaiting()));});
