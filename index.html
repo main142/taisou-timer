@@ -130,7 +130,7 @@ body[data-phase] button:focus-visible{outline-color:var(--on)}
     <button id="reset" type="button">リセット</button>
     <button id="go" type="button">スタート</button>
   </div>
-  <div class="note muted" id="note">音量を上げてからスタートしてください。<br>版 v11 <span id="voice"></span></div>
+  <div class="note muted" id="note">音量を上げてからスタートしてください。<br>版 v12 <span id="voice"></span></div>
 </footer>
 
 <script>
@@ -215,10 +215,10 @@ function tick(){
   if(i!==lastSeg){lastSeg=i;lastDisp=-1;if(state==='running')enter(seg);}
   if(disp!==lastDisp){
     if(state==='running'&&disp>=1&&disp<=3){tone(880,0.08,0.3);say(COUNT[disp],false);pulse();}
-    /* 1秒ごとに刻む音。ふだんは低く小さい「コッ」。残り10秒で「あと10秒」と言い、そこからは電子音の「ピロッ」に変える（区間の始まりは別の音なので鳴らさない） */
+    /* 1秒ごとに刻む音。ふだんは短い「ポッ」。残り10秒で「あと10秒」と言い、そこからは電子音の「ピロッ」に変える（区間の始まりは別の音なので鳴らさない） */
     else if(state==='running'&&lastDisp!==-1){
       if(disp<=10){tone(880,0.07,0.3,'square');tone(1760,0.1,0.3,'square',0.08);if(disp===10)say('あと10秒');}
-      else tone(600,0.04,0.2);
+      else tone(900,0.08,0.8);
     }
     lastDisp=disp;
   }
