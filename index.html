@@ -162,7 +162,16 @@ const elapsed=()=>state==='running'?base+(performance.now()-t0)/1000:base;
 let ac=null,voice=null;
 function pickVoice(){const v=speechSynthesis.getVoices();voice=v.find(x=>/^ja/i.test(x.lang))||null;}
 if('speechSynthesis' in window){pickVoice();speechSynthesis.onvoiceschanged=pickVoice;}
+/* iPhoneはマナーモードだと効果音が消える。無音の音声をくり返し再生しておくと「音楽再生中」扱いになり、消音でも鳴る */
+let mute=null;
+function silentWav(){
+  const n=8000,b=new Uint8Array(44+n),v=new DataView(b.buffer),w=(o,t)=>{for(let k=0;k<t.length;k++)b[o+k]=t.charCodeAt(k);};
+  w(0,'RIFF');v.setUint32(4,36+n,true);w(8,'WAVEfmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);
+  v.setUint32(24,8000,true);v.setUint32(28,8000,true);v.setUint16(32,1,true);v.setUint16(34,8,true);w(36,'data');v.setUint32(40,n,true);
+  b.fill(128,44);return URL.createObjectURL(new Blob([b],{type:'audio/wav'}));
+}
 function unlock(){
+  try{if(!mute){mute=new Audio(silentWav());mute.loop=true;mute.setAttribute('playsinline','');}mute.play().catch(()=>{});}catch(e){}
   /* iPhoneでマナーモード（消音）でも鳴るよう「音楽を再生するアプリ」として扱ってもらう（Safari 16.4以降） */
   try{if(navigator.audioSession)navigator.audioSession.type='playback';}catch(e){}
   try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();if(ac.state==='suspended')ac.resume();
@@ -182,7 +191,9 @@ function say(text){
 
 /* ---- 画面を消さない ---- */
 async function wake(){try{if('wakeLock' in navigator&&!wl){wl=await navigator.wakeLock.request('screen');wl.addEventListener('release',()=>{wl=null;});}}catch(e){wl=null;}}
-function sleep(){try{wl&&wl.release();}catch(e){}wl=null;}
+function sleep(){try{wl&&wl.release();}catch(e){}wl=null;
+  /* 終了の読み上げが終わるまで少し待ってから無音の再生を止める */
+  setTimeout(()=>{if(state!=='running'&&mute)mute.pause();},5000);}
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){if(state==='running')wake();tick();}});
 
 /* ---- 進行 ---- */
@@ -198,7 +209,8 @@ function tick(){
   if(i!==lastSeg){lastSeg=i;lastDisp=-1;if(state==='running')enter(seg);}
   if(disp!==lastDisp){
     if(state==='running'&&disp>=1&&disp<=3){tone(880,0.13,0.55);say(COUNT[disp]);pulse();}
-    else if(state==='running'&&lastDisp!==-1)tone(1000,0.05,0.25); /* 1秒ごとの「ピッ」（区間の始まりは別の音なので鳴らさない） */
+    /* 1秒ごとの「ピッ」。残り10秒からは高く大きい音に変える（区間の始まりは別の音なので鳴らさない） */
+    else if(state==='running'&&lastDisp!==-1){if(disp<=10)tone(1250,0.08,0.4);else tone(1000,0.05,0.25);}
     lastDisp=disp;
   }
   draw(seg,rem,disp,e);
