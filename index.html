@@ -130,7 +130,7 @@ body[data-phase] button:focus-visible{outline-color:var(--on)}
     <button id="reset" type="button">リセット</button>
     <button id="go" type="button">スタート</button>
   </div>
-  <div class="note muted" id="note">音量を上げてからスタートしてください。<br>版 v9</div>
+  <div class="note muted" id="note">音量を上げてからスタートしてください。<br>版 v10</div>
 </footer>
 
 <script>
@@ -160,7 +160,10 @@ const elapsed=()=>state==='running'?base+(performance.now()-t0)/1000:base;
 
 /* ---- 音 ---- */
 let ac=null,voice=null;
-function pickVoice(){const v=speechSynthesis.getVoices();voice=v.find(x=>/^ja/i.test(x.lang))||null;}
+/* 日本語の女性の声を優先して選ぶ（スマホに入っている声しか使えない）。見つからなければ日本語の声なら何でも */
+const FEMALE=/o-?ren|kyoko|nanami|haruka|ayumi|sayaka|mizuki|google 日本語|女性|female/i,MALE=/otoya|hattori|ichiro|keita|男性|male/i;
+function pickVoice(){const v=speechSynthesis.getVoices().filter(x=>/^ja/i.test(x.lang));
+  voice=v.find(x=>FEMALE.test(x.name))||v.find(x=>!MALE.test(x.name))||v[0]||null;}
 if('speechSynthesis' in window){pickVoice();speechSynthesis.onvoiceschanged=pickVoice;}
 /* iPhoneはマナーモードだと効果音が消える。無音の音声をくり返し再生しておくと「音楽再生中」扱いになり、消音でも鳴る */
 let mute=null;
@@ -185,8 +188,9 @@ function tone(freq,len,vol=0.5,type='sine',delay=0){
   g.gain.exponentialRampToValueAtTime(vol,t+0.01);g.gain.exponentialRampToValueAtTime(0.0001,t+len);
   o.connect(g).connect(ac.destination);o.start(t);o.stop(t+len+0.02);
 }
-function say(text){
-  try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);u.lang='ja-JP';if(voice)u.voice=voice;u.rate=1.05;u.volume=1;speechSynthesis.speak(u);}catch(e){}
+/* 声を高めにして若い感じにする。カウントダウンの数字は前の声を打ち切らずに順に話す（打ち切ると重なって聞こえることがある） */
+function say(text,cut=true){
+  try{if(cut)speechSynthesis.cancel();const u=new SpeechSynthesisUtterance(text);u.lang='ja-JP';if(voice)u.voice=voice;u.rate=1.1;u.pitch=1.35;u.volume=1;speechSynthesis.speak(u);}catch(e){}
 }
 
 /* ---- 画面を消さない ---- */
@@ -208,7 +212,7 @@ function tick(){
   const i=plan.segs.findIndex(s=>e<s.end),seg=plan.segs[i],rem=seg.end-e,disp=Math.ceil(rem);
   if(i!==lastSeg){lastSeg=i;lastDisp=-1;if(state==='running')enter(seg);}
   if(disp!==lastDisp){
-    if(state==='running'&&disp>=1&&disp<=3){tone(880,0.13,0.55);say(COUNT[disp]);pulse();}
+    if(state==='running'&&disp>=1&&disp<=3){tone(880,0.08,0.3);say(COUNT[disp],false);pulse();}
     /* 1秒ごとに刻む音。ふだんは低く小さい「コッ」。残り10秒で「あと10秒」と言い、そこからは電子音の「ピロッ」に変える（区間の始まりは別の音なので鳴らさない） */
     else if(state==='running'&&lastDisp!==-1){
       if(disp<=10){tone(880,0.07,0.3,'square');tone(1760,0.1,0.3,'square',0.08);if(disp===10)say('あと10秒');}
