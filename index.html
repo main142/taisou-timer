@@ -195,6 +195,7 @@ function tick(){
   if(i!==lastSeg){lastSeg=i;lastDisp=-1;if(state==='running')enter(seg);}
   if(disp!==lastDisp){
     if(state==='running'&&disp>=1&&disp<=3){tone(880,0.13,0.55);say(COUNT[disp]);pulse();}
+    else if(state==='running'&&lastDisp!==-1)tone(1000,0.05,0.25); /* 1秒ごとの「ピッ」（区間の始まりは別の音なので鳴らさない） */
     lastDisp=disp;
   }
   draw(seg,rem,disp,e);
