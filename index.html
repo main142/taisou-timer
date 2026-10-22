@@ -130,7 +130,7 @@ body[data-phase] button:focus-visible{outline-color:var(--on)}
     <button id="reset" type="button">リセット</button>
     <button id="go" type="button">スタート</button>
   </div>
-  <div class="note muted" id="note">音量を上げてからスタートしてください。<br>版 v13 <span id="voice"></span></div>
+  <div class="note muted" id="note">音量を上げてからスタートしてください。<br>版 v14 <span id="voice"></span></div>
 </footer>
 
 <script>
@@ -183,11 +183,12 @@ function unlock(){
     const b=ac.createBuffer(1,1,22050),s=ac.createBufferSource();s.buffer=b;s.connect(ac.destination);s.start(0);}catch(e){}
   try{const u=new SpeechSynthesisUtterance(' ');u.volume=0;u.lang='ja-JP';speechSynthesis.speak(u);}catch(e){}
 }
-function tone(freq,len,vol=0.5,type='sine',delay=0){
+function tone(freq,len,vol=0.5,type='sine',delay=0,hold=0){
   if(!ac)return;if(ac.state!=='running')try{ac.resume();}catch(e){} /* 読み上げなどで止められた音を戻す */
   const t=ac.currentTime+delay,o=ac.createOscillator(),g=ac.createGain();
   o.type=type;o.frequency.value=freq;g.gain.setValueAtTime(0.0001,t);
-  g.gain.exponentialRampToValueAtTime(vol,t+0.01);g.gain.exponentialRampToValueAtTime(0.0001,t+len);
+  g.gain.exponentialRampToValueAtTime(vol,t+0.01);if(hold)g.gain.setValueAtTime(vol,t+hold); /* hold秒は小さくならずに鳴り続ける */
+  g.gain.exponentialRampToValueAtTime(0.0001,t+len);
   o.connect(g).connect(ac.destination);o.start(t);o.stop(t+len+0.02);
 }
 /* 声を高めにして若い感じにする。カウントダウンの数字は前の声を打ち切らずに順に話す（打ち切ると重なって聞こえることがある） */
@@ -218,7 +219,7 @@ function tick(){
     /* 1秒ごとに刻む音。ふだんは高く短い「ピッ」。残り10秒で「あと10秒」と言い、そこからは電子音の「ピロッ」に変える（区間の始まりは別の音なので鳴らさない） */
     else if(state==='running'&&lastDisp!==-1){
       if(disp<=10){tone(880,0.07,0.3,'square');tone(1760,0.1,0.3,'square',0.08);if(disp===10)say('あと10秒');}
-      else tone(1500,0.08,0.8);
+      else tone(1500,0.12,1,'triangle',0,0.07);
     }
     lastDisp=disp;
   }
