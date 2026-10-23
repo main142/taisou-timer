@@ -130,7 +130,7 @@ body[data-phase] button:focus-visible{outline-color:var(--on)}
     <button id="reset" type="button">リセット</button>
     <button id="go" type="button">スタート</button>
   </div>
-  <div class="note muted" id="note">音量を上げてからスタートしてください。<br>版 v15 <span id="voice"></span></div>
+  <div class="note muted" id="note">音量を上げてからスタートしてください。<br>版 v16 <span id="voice"></span></div>
 </footer>
 
 <script>
@@ -159,7 +159,7 @@ const fmt=s=>{s=Math.max(0,Math.ceil(s));return Math.floor(s/60)+':'+String(s%60
 const elapsed=()=>state==='running'?base+(performance.now()-t0)/1000:base;
 
 /* ---- 音 ---- */
-let ac=null,voice=null;
+let voice=null;
 /* 日本語の女性の声を優先して選ぶ（スマホに入っている声しか使えない）。見つからなければ日本語の声なら何でも */
 const FEMALE=/o-?ren|kyoko|nanami|haruka|ayumi|sayaka|mizuki|google 日本語|女性|female/i,MALE=/otoya|hattori|ichiro|keita|男性|male/i;
 /* O-ren を一番に、その中でも「拡張」「プレミアム」の高音質版を優先する */
@@ -167,29 +167,58 @@ const score=x=>(/o-?ren/i.test(x.name)?4:FEMALE.test(x.name)?2:MALE.test(x.name)
 function pickVoice(){const v=speechSynthesis.getVoices().filter(x=>/^ja/i.test(x.lang)).sort((a,b)=>score(b)-score(a));
   voice=v[0]||null;const el=$('voice');if(el)el.textContent=voice?'声：'+voice.name:'';}
 if('speechSynthesis' in window){pickVoice();speechSynthesis.onvoiceschanged=pickVoice;}
-/* iPhoneはマナーモードだと効果音が消える。無音の音声をくり返し再生しておくと「音楽再生中」扱いになり、消音でも鳴る */
-let mute=null;
-function silentWav(){
-  const n=8000,b=new Uint8Array(44+n),v=new DataView(b.buffer),w=(o,t)=>{for(let k=0;k<t.length;k++)b[o+k]=t.charCodeAt(k);};
-  w(0,'RIFF');v.setUint32(4,36+n,true);w(8,'WAVEfmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);
-  v.setUint32(24,8000,true);v.setUint32(28,8000,true);v.setUint16(32,1,true);v.setUint16(34,8,true);w(36,'data');v.setUint32(40,n,true);
-  b.fill(128,44);return URL.createObjectURL(new Blob([b],{type:'audio/wav'}));
+/* iPhoneはマナーモードだと、ふつうの効果音（Web Audio）は消える。音楽と同じ<audio>で鳴らす音は消えないので、
+   効果音は前もってWAVの音に作っておき<audio>で鳴らす。さらに無音をくり返し流して「音楽再生中」の状態を保つ */
+const RATE=44100;
+/* 音の部品 [高さ, 長さ, 大きさ, 波の形, 鳴り始めの遅れ, 小さくならずに鳴る時間] をまとめてWAVにする */
+function wav(parts){
+  const total=Math.max(...parts.map(p=>(p[4]||0)+p[1]))+0.02,n=Math.ceil(total*RATE),d=new Float32Array(n);
+  for(const [f,len,vol,type='sine',delay=0,hold=0] of parts){
+    const h=Math.max(0.01,hold),i0=Math.floor(delay*RATE);
+    for(let k=0;k<len*RATE&&i0+k<n;k++){
+      const t=k/RATE,ph=(f*t)%1;
+      const w=type==='square'?(ph<0.5?1:-1):type==='triangle'?1-4*Math.abs(ph-0.5):Math.sin(2*Math.PI*ph);
+      const g=t<0.01?vol*t/0.01:t<h?vol:vol*Math.pow(0.0001/vol,(t-h)/(len-h));
+      d[i0+k]+=w*g;
+    }
+  }
+  const b=new ArrayBuffer(44+n*2),v=new DataView(b),str=(o,x)=>{for(let k=0;k<x.length;k++)v.setUint8(o+k,x.charCodeAt(k));};
+  str(0,'RIFF');v.setUint32(4,36+n*2,true);str(8,'WAVEfmt ');v.setUint32(16,16,true);v.setUint16(20,1,true);v.setUint16(22,1,true);
+  v.setUint32(24,RATE,true);v.setUint32(28,RATE*2,true);v.setUint16(32,2,true);v.setUint16(34,16,true);str(36,'data');v.setUint32(40,n*2,true);
+  for(let k=0;k<n;k++)v.setInt16(44+k*2,Math.max(-1,Math.min(1,d[k]))*32767,true);
+  return URL.createObjectURL(new Blob([b],{type:'audio/wav'}));
+}
+const SND={
+  work:[[1320,0.45,0.6]],                                    /* 体操の始まり */
+  rest:[[660,0.35,0.5]],                                     /* 休憩の始まり */
+  count:[[880,0.08,0.3]],                                    /* 残り3・2・1秒 */
+  ten:[[880,0.07,0.3,'square'],[1760,0.1,0.3,'square',0.08]], /* 残り10〜4秒の「ピロッ」 */
+  tick:[[1500,0.12,1,'triangle',0,0.07]],                    /* ふだんの1秒ごとの「ピッ」 */
+  end:[[1320,0.2,0.6],[1760,0.5,0.6,'sine',0.22]],           /* 終了 */
+};
+let el=null,mute=null;
+function makeSounds(){
+  el={};for(const k in SND){const a=new Audio(wav(SND[k]));a.preload='auto';a.setAttribute('playsinline','');el[k]=a;}
+  mute=new Audio(wav([[0,1,0.0001]]));mute.loop=true;mute.setAttribute('playsinline','');
 }
 function unlock(){
-  try{if(!mute){mute=new Audio(silentWav());mute.loop=true;mute.setAttribute('playsinline','');}mute.play().catch(()=>{});}catch(e){}
-  /* iPhoneでマナーモード（消音）でも鳴るよう「音楽を再生するアプリ」として扱ってもらう（Safari 16.4以降） */
+  /* iPhoneでマナーモード（消音）でも鳴るよう「音楽を再生するアプリ」として扱ってもらう（Safari 17以降） */
   try{if(navigator.audioSession)navigator.audioSession.type='playback';}catch(e){}
-  try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();if(ac.state==='suspended')ac.resume();
-    const b=ac.createBuffer(1,1,22050),s=ac.createBufferSource();s.buffer=b;s.connect(ac.destination);s.start(0);}catch(e){}
+  try{
+    if(!el){makeSounds();
+      /* iPhoneはボタンを押したときに一度再生した<audio>しか後で鳴らせないので、全部の音を消音で一度だけ再生しておく */
+      for(const k in el){const a=el[k];a.muted=true;a._live=false;
+        a.play().then(()=>{if(!a._live){a.pause();a.currentTime=0;}a.muted=false;}).catch(()=>{a.muted=false;});}
+    }
+    mute.play().catch(()=>{});
+  }catch(e){}
 }
-function tone(freq,len,vol=0.5,type='sine',delay=0,hold=0){
-  if(!ac)return;if(ac.state!=='running')try{ac.resume();}catch(e){} /* 読み上げなどで止められた音を戻す */
-  const t=ac.currentTime+delay,o=ac.createOscillator(),g=ac.createGain();
-  o.type=type;o.frequency.value=freq;g.gain.setValueAtTime(0.0001,t);
-  g.gain.exponentialRampToValueAtTime(vol,t+0.01);if(hold)g.gain.setValueAtTime(vol,t+hold); /* hold秒は小さくならずに鳴り続ける */
-  g.gain.exponentialRampToValueAtTime(0.0001,t+len);
-  o.connect(g).connect(ac.destination);o.start(t);o.stop(t+len+0.02);
+function snd(k){
+  if(!el)return;const a=el[k];a._live=true;a.muted=false;
+  try{a.currentTime=0;}catch(e){}a.play().catch(()=>{});
 }
+/* 読み上げなどで無音の再生が止められると、マナーモードで音が消えてしまうので、止まっていたら流し直す */
+function keepAlive(){if(mute&&mute.paused&&state==='running')mute.play().catch(()=>{});}
 /* 声を高めにして若い感じにする。
    iPhoneは読み上げが詰まると後の声が全部出なくなるので、話し中なら打ち切ってから少し待って話す（すぐ話すと声が消えたり重なったりする） */
 function say(text){
@@ -209,8 +238,8 @@ document.addEventListener('visibilitychange',()=>{if(document.visibilityState===
 
 /* ---- 進行 ---- */
 function enter(seg){
-  if(seg.type==='work'){tone(1320,0.45,0.6);say('スタート');}
-  else if(seg.type==='rest'){tone(660,0.35,0.5);say('休憩');}
+  if(seg.type==='work'){snd('work');say('スタート');}
+  else if(seg.type==='rest'){snd('rest');say('休憩');}
 }
 function tick(){
   if(!plan)return;
@@ -219,11 +248,12 @@ function tick(){
   const i=plan.segs.findIndex(s=>e<s.end),seg=plan.segs[i],rem=seg.end-e,disp=Math.ceil(rem);
   if(i!==lastSeg){lastSeg=i;lastDisp=-1;if(state==='running')enter(seg);}
   if(disp!==lastDisp){
-    if(state==='running'&&disp>=1&&disp<=3){tone(880,0.08,0.3);say(COUNT[disp]);pulse();}
+    keepAlive();
+    if(state==='running'&&disp>=1&&disp<=3){snd('count');say(COUNT[disp]);pulse();}
     /* 1秒ごとに刻む音。ふだんは高く短い「ピッ」。残り10秒で「あと10秒」と言い、そこからは電子音の「ピロッ」に変える（区間の始まりは別の音なので鳴らさない） */
     else if(state==='running'&&lastDisp!==-1){
-      if(disp<=10){tone(880,0.07,0.3,'square');tone(1760,0.1,0.3,'square',0.08);if(disp===10)say('あと10秒');}
-      else tone(1500,0.12,1,'triangle',0,0.07);
+      if(disp<=10){snd('ten');if(disp===10)say('あと10秒');}
+      else snd('tick');
     }
     lastDisp=disp;
   }
@@ -247,7 +277,7 @@ function dots(doneN,cur){
 }
 function finish(){
   clearInterval(iv);iv=null;state='done';sleep();
-  tone(1320,0.2,0.6);setTimeout(()=>tone(1760,0.5,0.6),220);say('終了です。お疲れさまでした');
+  snd('end');say('終了です。お疲れさまでした');
   document.body.dataset.phase='done';
   $('phase').textContent='終了';$('round').innerHTML=cfg.rounds+'<small> / '+cfg.rounds+' 回</small>';
   $('big').textContent='✓';$('arc').style.strokeDashoffset=0;$('next').textContent='お疲れさまでした';
