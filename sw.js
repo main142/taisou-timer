@@ -1,5 +1,5 @@
 // 体操タイマー：オフライン用の保存。直したら VERSION の数字と、index.html の「版」の表示を上げる
-const VERSION='taisou-timer-v24';
+const VERSION='taisou-timer-v25';
 const FILES=['./','./index.html','./manifest.webmanifest','./icon-180.png','./icon-192.png','./icon-512.png',
   './voice/san.wav','./voice/ni.wav','./voice/ichi.wav','./voice/start.wav','./voice/kyukei.wav','./voice/ato10.wav','./voice/owari.wav'];
 // ブラウザに残っている古いファイルではなく、必ずサーバーから取り直して保存する
