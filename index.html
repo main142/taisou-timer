@@ -130,7 +130,7 @@ body[data-phase] button:focus-visible{outline-color:var(--on)}
     <button id="reset" type="button">リセット</button>
     <button id="go" type="button">スタート</button>
   </div>
-  <div class="note muted" id="note">音量を上げてからスタートしてください。<br>版 v17 <span id="voice"></span></div>
+  <div class="note muted" id="note">音量を上げてからスタートしてください。<br>版 v18 <span id="voice"></span></div>
 </footer>
 
 <script>
@@ -185,6 +185,8 @@ function silentWav(){
   b.fill(128,44);return URL.createObjectURL(new Blob([b],{type:'audio/wav'}));
 }
 function unlock(){
+  /* iPhoneはボタンを押したその場で一度話さないと、後から声を出せない。前の声が残っていても確実に話せるよう、打ち切ってから聞こえない声で話しておく */
+  try{speechSynthesis.cancel();const u=new SpeechSynthesisUtterance('あ');u.lang='ja-JP';if(voice)u.voice=voice;u.volume=0;speechSynthesis.speak(u);}catch(e){}
   try{if(!mute){mute=new Audio(silentWav());mute.loop=true;mute.setAttribute('playsinline','');}mute.play().catch(()=>{});}catch(e){}
   /* iPhoneでマナーモード（消音）でも鳴るよう「音楽を再生するアプリ」として扱ってもらう（Safari 17以降） */
   try{if(navigator.audioSession)navigator.audioSession.type='playback';}catch(e){}
