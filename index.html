@@ -130,7 +130,7 @@ body[data-phase] button:focus-visible{outline-color:var(--on)}
     <button id="reset" type="button">リセット</button>
     <button id="go" type="button">スタート</button>
   </div>
-  <div class="note muted" id="note">音量を上げてからスタートしてください。<br>版 v23 <span id="voice"></span><br>声：HTS Voice "Mei"（名古屋工業大学 / CC BY 3.0）</div>
+  <div class="note muted" id="note">音量を上げてからスタートしてください。<br>版 v24 <span id="voice"></span><br>声：VOICEVOX</div>
 </footer>
 
 <script>
@@ -220,7 +220,7 @@ function keepAlive(){
 const REC={'さん':'san','に':'ni','いち':'ichi','スタート':'start','休憩':'kyukei','あと10秒':'ato10','終了です。お疲れさまでした':'owari'};
 const recRaw={},rec={};let recSrc=null;
 for(const [text,name] of Object.entries(REC)){
-  (async()=>{for(const ext of ['mp3','m4a','wav']){
+  (async()=>{for(const ext of ['wav','mp3','m4a']){
     try{const r=await fetch('voice/'+name+'.'+ext);if(r.ok){recRaw[text]=await r.arrayBuffer();decodeRec();return;}}catch(e){}
   }})();
 }
