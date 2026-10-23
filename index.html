@@ -130,7 +130,7 @@ body[data-phase] button:focus-visible{outline-color:var(--on)}
     <button id="reset" type="button">リセット</button>
     <button id="go" type="button">スタート</button>
   </div>
-  <div class="note muted" id="note">音量を上げてからスタートしてください。<br>版 v18 <span id="voice"></span></div>
+  <div class="note muted" id="note">音量を上げてからスタートしてください。<br>版 v19 <span id="voice"></span></div>
 </footer>
 
 <script>
@@ -165,8 +165,9 @@ const FEMALE=/o-?ren|kyoko|nanami|haruka|ayumi|sayaka|mizuki|google 日本語|�
 /* O-ren を一番に、その中でも「拡張」「プレミアム」の高音質版を優先する */
 const score=x=>(/o-?ren/i.test(x.name)?4:FEMALE.test(x.name)?2:MALE.test(x.name)?0:1)*10+(/enhanced|premium|拡張|プレミアム/i.test(x.name)?1:0);
 function pickVoice(){const v=speechSynthesis.getVoices().filter(x=>/^ja/i.test(x.lang)).sort((a,b)=>score(b)-score(a));
-  voice=v[0]||null;const el=$('voice');if(el)el.textContent=voice?'声：'+voice.name:'';}
-if('speechSynthesis' in window){pickVoice();speechSynthesis.onvoiceschanged=pickVoice;}
+  voice=v[0]||null;showVoice();}
+function showVoice(){const el=$('voice');if(!el)return;const n=Object.keys(rec).length;
+  el.textContent=n?'声：録音（'+n+'/'+Object.keys(REC).length+'）':voice?'声：'+voice.name:'';}
 /* 効果音はWeb Audioで鳴らす（<audio>で鳴らすと、iPhoneでは鳴るタイミングがずれたり読み上げの声が止まったりする）。
    iPhoneはマナーモードだとWeb Audioの音が消えるので、無音をくり返し流して「音楽再生中」の状態を保つ */
 let ac=null,mute=null;
@@ -192,6 +193,7 @@ function unlock(){
   try{if(navigator.audioSession)navigator.audioSession.type='playback';}catch(e){}
   try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();if(ac.state!=='running')ac.resume();
     const b=ac.createBuffer(1,1,22050),s=ac.createBufferSource();s.buffer=b;s.connect(ac.destination);s.start(0);}catch(e){}
+  decodeRec();
 }
 /* 音の部品 [高さ, 長さ, 大きさ, 波の形, 鳴り始めの遅れ, 小さくならずに鳴る時間] を鳴らす */
 function snd(k){
@@ -211,9 +213,30 @@ function keepAlive(){
   if(mute&&mute.paused&&state==='running')mute.play().catch(()=>{});
   if(ac&&ac.state!=='running'&&state==='running')try{ac.resume();}catch(e){}
 }
+/* 録音した声。voice フォルダに置いた音声ファイルを使う（マナーモードでも鳴る）。ファイルがない言葉は iPhone の読み上げで話す */
+const REC={'さん':'san','に':'ni','いち':'ichi','スタート':'start','休憩':'kyukei','あと10秒':'ato10','終了です。お疲れさまでした':'owari'};
+const recRaw={},rec={};let recSrc=null;
+for(const [text,name] of Object.entries(REC)){
+  (async()=>{for(const ext of ['mp3','m4a','wav']){
+    try{const r=await fetch('voice/'+name+'.'+ext);if(r.ok){recRaw[text]=await r.arrayBuffer();decodeRec();return;}}catch(e){}
+  }})();
+}
+/* 読み込んだファイルを、すぐ鳴らせる音に変えておく（Web Audio は止まった状態で先に作っておき、スタートで動かす） */
+function decodeRec(){
+  try{ac=ac||new (window.AudioContext||window.webkitAudioContext)();}catch(e){return;}
+  for(const text in recRaw){const raw=recRaw[text];delete recRaw[text];
+    ac.decodeAudioData(raw).then(b=>{rec[text]=b;showVoice();}).catch(()=>{});}
+}
+function playRec(text){
+  try{recSrc&&recSrc.stop();}catch(e){}
+  if(ac.state!=='running')try{ac.resume();}catch(e){}
+  const s=ac.createBufferSource();s.buffer=rec[text];s.connect(ac.destination);s.start();recSrc=s;
+}
+if('speechSynthesis' in window){pickVoice();speechSynthesis.onvoiceschanged=pickVoice;}
 /* 声を高めにして若い感じにする。
    iPhoneは読み上げが詰まると後の声が全部出なくなるので、話し中なら打ち切ってから少し待って話す（すぐ話すと声が消えたり重なったりする） */
 function say(text){
+  if(ac&&rec[text]){try{speechSynthesis.cancel();}catch(e){}playRec(text);return;}
   try{
     const u=new SpeechSynthesisUtterance(text);u.lang='ja-JP';if(voice)u.voice=voice;u.rate=1.1;u.pitch=1.35;u.volume=1;
     if(speechSynthesis.speaking||speechSynthesis.pending){speechSynthesis.cancel();setTimeout(()=>{try{speechSynthesis.speak(u);}catch(e){}},80);}
