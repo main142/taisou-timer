@@ -130,7 +130,7 @@ body[data-phase] button:focus-visible{outline-color:var(--on)}
     <button id="reset" type="button">リセット</button>
     <button id="go" type="button">スタート</button>
   </div>
-  <div class="note muted" id="note">音量を上げてからスタートしてください。<br>版 v21 <span id="voice"></span><br>声：HTS Voice "Mei"（名古屋工業大学 / CC BY 3.0）</div>
+  <div class="note muted" id="note">音量を上げてからスタートしてください。<br>版 v22 <span id="voice"></span><br>声：HTS Voice "Mei"（名古屋工業大学 / CC BY 3.0）</div>
 </footer>
 
 <script>
@@ -196,15 +196,18 @@ function unlock(){
   decodeRec();
 }
 /* 音の部品 [高さ, 長さ, 大きさ, 波の形, 鳴り始めの遅れ, 小さくならずに鳴る時間] を鳴らす */
-function snd(k){
-  if(!ac)return;if(ac.state!=='running')try{ac.resume();}catch(e){} /* 読み上げなどで止められた音を戻す */
+/* at は鳴らす時刻（Web Audio の時計）。先に予約しておくと、画面の処理が遅れても音はぴったりの時刻に鳴る */
+function snd(k,at){
+  if(!ac)return [];if(ac.state!=='running')try{ac.resume();}catch(e){} /* 読み上げなどで止められた音を戻す */
+  const nodes=[];
   for(const [freq,len,vol,type='sine',delay=0,hold=0] of SND[k]){
-    const t=ac.currentTime+delay,o=ac.createOscillator(),g=ac.createGain();
+    const t=Math.max(at??0,ac.currentTime)+delay,o=ac.createOscillator(),g=ac.createGain();
     o.type=type;o.frequency.value=freq;g.gain.setValueAtTime(0.0001,t);
     g.gain.exponentialRampToValueAtTime(vol,t+0.01);if(hold)g.gain.setValueAtTime(vol,t+hold);
     g.gain.exponentialRampToValueAtTime(0.0001,t+len);
-    o.connect(g).connect(ac.destination);o.start(t);o.stop(t+len+0.02);
+    o.connect(g).connect(ac.destination);o.start(t);o.stop(t+len+0.02);nodes.push(o);
   }
+  return nodes;
 }
 /* 読み上げで無音の再生が止められると、マナーモードで音が消えてしまうので流し直す。
    声とぶつからないよう、数字が変わってから半秒たったところで確かめる */
@@ -227,16 +230,24 @@ function decodeRec(){
   for(const text in recRaw){const raw=recRaw[text];delete recRaw[text];
     ac.decodeAudioData(raw).then(b=>{rec[text]=b;showVoice();}).catch(()=>{});}
 }
-function playRec(text){
-  try{recSrc&&recSrc.stop();}catch(e){}
+function playRec(text,at){
   if(ac.state!=='running')try{ac.resume();}catch(e){}
-  const s=ac.createBufferSource();s.buffer=rec[text];s.connect(ac.destination);s.start();recSrc=s;
+  const t=Math.max(at??0,ac.currentTime);
+  try{recSrc&&recSrc.stop(t);}catch(e){} /* 前の声は、次の声が始まる時刻で止める */
+  const s=ac.createBufferSource();s.buffer=rec[text];s.connect(ac.destination);s.start(t);recSrc=s;
+  return [s];
 }
 if('speechSynthesis' in window){pickVoice();speechSynthesis.onvoiceschanged=pickVoice;}
 /* 声を高めにして若い感じにする。
    iPhoneは読み上げが詰まると後の声が全部出なくなるので、話し中なら打ち切ってから少し待って話す（すぐ話すと声が消えたり重なったりする） */
-function say(text){
-  if(ac&&rec[text]){try{speechSynthesis.cancel();}catch(e){}playRec(text);return;}
+function say(text,at){
+  if(ac&&rec[text])return playRec(text,at);
+  /* 録音がない言葉は読み上げで話す（時刻の予約ができないので、その時刻まで待って話す） */
+  const wait=ac&&at?Math.max(0,(at-ac.currentTime)*1000):0;
+  const id=setTimeout(()=>speak(text),wait);
+  return [{stop(){clearTimeout(id);}}];
+}
+function speak(text){
   try{
     const u=new SpeechSynthesisUtterance(text);u.lang='ja-JP';if(voice)u.voice=voice;u.rate=1.1;u.pitch=1.35;u.volume=1;
     if(speechSynthesis.speaking||speechSynthesis.pending){speechSynthesis.cancel();setTimeout(()=>{try{speechSynthesis.speak(u);}catch(e){}},80);}
@@ -252,25 +263,49 @@ function sleep(){try{wl&&wl.release();}catch(e){}wl=null;
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'){if(state==='running')wake();tick();}});
 
 /* ---- 進行 ---- */
-function enter(seg){
-  if(seg.type==='work'){snd('work');say('スタート');}
-  else if(seg.type==='rest'){snd('rest');say('休憩');}
+/* 音を鳴らす時刻の一覧を作る。[開始からの秒数, 効果音, 声] */
+function soundPlan(){
+  const ev=[];
+  for(const seg of plan.segs){
+    const enter=seg.type==='work'?['work','スタート']:seg.type==='rest'?['rest','休憩']:null;
+    if(enter)ev.push([seg.start,...enter]);
+    for(let d=Math.min(seg.dur,3);d>=1;d--)ev.push([seg.end-d,'count',COUNT[d]]);
+    /* 1秒ごとに刻む音。ふだんは高く短い「ピッ」。残り10秒で「あと10秒」と言い、そこからは電子音の「ピロッ」に変える（区間の始まりは別の音なので鳴らさない） */
+    for(let d=seg.dur-1;d>3;d--)ev.push([seg.end-d,d<=10?'ten':'tick',d===10?'あと10秒':null]);
+  }
+  ev.push([plan.total,'end','終了です。お疲れさまでした']);
+  return ev.sort((a,b)=>a[0]-b[0]);
+}
+/* これから0.3秒以内に鳴らす音を、Web Audio の時計で予約しておく */
+const AHEAD=0.3;let events=[],nextEv=0,booked=[],anchor=null;
+function book(e){
+  if(!ac)return;
+  /* 音の時刻は「Web Audio の時計 − 経過時間」を基準に決めて、毎回同じ間隔で鳴らす。
+     画面の時計と0.15秒以上ずれたとき（音が一時止められたときなど）だけ合わせ直す */
+  if(anchor===null||Math.abs(ac.currentTime-anchor-e)>0.15)anchor=ac.currentTime-e;
+  while(nextEv<events.length&&events[nextEv][0]<e+AHEAD){
+    const [t,k,text]=events[nextEv++];if(t<e-0.1)continue; /* 一時停止の前に鳴らした音はとばす */
+    const at=Math.max(ac.currentTime,anchor+t);
+    booked.push({t,nodes:[...snd(k,at),...(text?say(text,at):[])]});
+  }
+  booked=booked.filter(b=>b.t>e-5);
+}
+/* 一時停止やリセットのときは、予約したけれどまだ鳴っていない音を取り消す */
+function unbook(e){
+  for(const b of booked)if(b.t>=e)for(const n of b.nodes)try{n.stop();}catch(x){}
+  booked=[];anchor=null;nextEv=events.findIndex(v=>v[0]>=e);if(nextEv<0)nextEv=events.length;
 }
 function tick(){
   if(!plan)return;
   const e=elapsed();
+  if(state==='running')book(e);
   if(e>=plan.total){finish();return;}
   const i=plan.segs.findIndex(s=>e<s.end),seg=plan.segs[i],rem=seg.end-e,disp=Math.ceil(rem);
-  if(i!==lastSeg){lastSeg=i;lastDisp=-1;if(state==='running')enter(seg);}
+  if(i!==lastSeg){lastSeg=i;lastDisp=-1;}
   if(disp!==lastDisp)kaDone=false;
   else if(!kaDone&&disp-rem>=0.5){kaDone=true;if(state==='running')keepAlive();}
   if(disp!==lastDisp){
-    if(state==='running'&&disp>=1&&disp<=3){snd('count');say(COUNT[disp]);pulse();}
-    /* 1秒ごとに刻む音。ふだんは高く短い「ピッ」。残り10秒で「あと10秒」と言い、そこからは電子音の「ピロッ」に変える（区間の始まりは別の音なので鳴らさない） */
-    else if(state==='running'&&lastDisp!==-1){
-      if(disp<=10){snd('ten');if(disp===10)say('あと10秒');}
-      else snd('tick');
-    }
+    if(state==='running'&&disp>=1&&disp<=3)pulse();
     lastDisp=disp;
   }
   draw(seg,rem,disp,e);
@@ -293,7 +328,6 @@ function dots(doneN,cur){
 }
 function finish(){
   clearInterval(iv);iv=null;state='done';sleep();
-  snd('end');say('終了です。お疲れさまでした');
   document.body.dataset.phase='done';
   $('phase').textContent='終了';$('round').innerHTML=cfg.rounds+'<small> / '+cfg.rounds+' 回</small>';
   $('big').textContent='✓';$('arc').style.strokeDashoffset=0;$('next').textContent='お疲れさまでした';
@@ -318,13 +352,14 @@ function ui(){
 }
 function start(){
   unlock();
-  if(state==='idle'||state==='done'){plan=build();base=0;lastSeg=-1;lastDisp=-1;}
+  if(state==='idle'||state==='done'){plan=build();base=0;lastSeg=-1;lastDisp=-1;events=soundPlan();nextEv=0;booked=[];anchor=null;}
+  else unbook(base);
   t0=performance.now();state='running';wake();
   clearInterval(iv);iv=setInterval(tick,50);tick();ui();
 }
-function pause(){base=elapsed();state='paused';clearInterval(iv);iv=null;sleep();
+function pause(){base=elapsed();state='paused';clearInterval(iv);iv=null;sleep();unbook(base);
   $('phase').textContent=NAME[plan.segs[lastSeg].type]+'（一時停止）';ui();}
-function reset(){clearInterval(iv);iv=null;state='idle';base=0;lastSeg=-1;sleep();try{speechSynthesis.cancel();}catch(e){}idleView();ui();}
+function reset(){clearInterval(iv);iv=null;unbook(0);state='idle';base=0;lastSeg=-1;sleep();try{speechSynthesis.cancel();}catch(e){}idleView();ui();}
 
 $('go').addEventListener('click',()=>{state==='running'?pause():start();});
 $('reset').addEventListener('click',reset);
